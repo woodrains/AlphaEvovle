@@ -1,0 +1,124 @@
+# Current Mapping Performance
+- Fitness Score: {fitness_score}
+- Feature Coordinates: {feature_coords}
+- Optimization Focus: {improvement_areas}
+
+{artifacts}
+
+# Mapping Evolution History
+{evolution_history}
+
+# Current Mapping Program
+```{language}
+{current_program}
+```
+
+# Task: Rewrite Mapping Strategy for Better Performance
+
+Your goal is to **completely rewrite** the mapping strategy functions within the EVOLVE-BLOCK to achieve a better **FITNESS SCORE** (lower EDP).
+
+The system tracks diversity across: {feature_dimensions}
+Explore fundamentally different mapping approaches while maintaining constraint satisfaction.
+
+## CRITICAL CONSTRAINTS (FAILURE IF VIOLATED):
+
+### 1. C_t (Buffer Capacity Constraint)
+```python
+input_tile = N * P * Q * C
+weight_tile = K * R * S * C
+output_tile = P * Q * K * N
+total = input_tile + weight_tile + output_tile
+
+# Must satisfy at each level:
+total <= buffer_size[level]
+
+# Eyeriss buffer sizes (in bytes):
+# l0 (PE):     16 KB  = 16,384 bytes
+# l1 (Dummy):  1 KB   = 1,024 bytes
+# l2 (Global): 256 KB = 262,144 bytes
+# l3 (DRAM):   1 GB   = 1,073,741,824 bytes
+```
+
+### 2. C_p (Spatial Parallelism Constraint)
+```python
+spatial_product = product of all spatial_tiles
+
+# Must satisfy at each level:
+spatial_product <= spmap_cstr[level]
+
+# Eyeriss spatial constraints:
+# l0 (PE):     1  (no spatial parallelism)
+# l1 (Dummy):  14 (P dimension)
+# l2 (Global): 12 (P dimension)
+# l3 (DRAM):   1  (no spatial parallelism)
+```
+
+### 3. Dimension Budget Conservation
+```python
+# For each dimension D across all 4 levels:
+product(temporal_tiles[D]) * product(spatial_tiles[D]) == original_D
+
+# Original dimensions (from problem.yaml):
+# N=1, K=64, C=64, P=56, Q=56, R=3, S=3
+```
+
+## Output Format
+
+Provide the complete rewritten EVOLVE-BLOCK code:
+
+```{language}
+# EVOLVE-BLOCK-START
+
+    def generate_mapping_strategy(self) -> Dict[str, Any]:
+        # Your optimized implementation here
+        ...
+
+    def _get_dimension_order_baseline(self, level_idx: int) -> List[str]:
+        # Your optimized dimension ordering
+        ...
+
+    def _get_temporal_tiles_baseline(self, level_idx: int) -> Dict[str, int]:
+        # Your optimized temporal tiling
+        ...
+
+    def _get_spatial_tiles_baseline(self, level_idx: int) -> Dict[str, int]:
+        # Your optimized spatial tiling
+        ...
+
+    def _get_bypass_strategy_baseline(self, level_idx: int) -> List[str]:
+        # Your optimized bypass strategy
+        ...
+
+# EVOLVE-BLOCK-END
+```
+
+## Optimization Principles:
+
+### 1. Eyeriss Architecture Characteristics
+- **4-level memory hierarchy**: DRAM → Global Buffer → Dummy → PE
+- **168 PEs total**: Organized as spatial array supporting P/Q parallelism
+- **Row Stationary dataflow**: Optimized to keep filter rows in PE registers
+- **Global Buffer**: 256KB, optimized for weight distribution
+
+### 2. Recommended Strategies
+- **Weight Reuse**: Tile weights (K×R×S×C) to fit in Global Buffer for maximum reuse
+- **Output Stationary**: Keep output activations in PE level (16KB capacity)
+- **Spatial on P/Q**: Exploit Eyeriss's spatial parallelism on output dimensions
+- **R/S Inner Loops**: Minimize data movement by keeping convolution dimensions inner
+- **Batch Outer**: Place N (batch) dimension in outer loops for DRAM level
+
+### 3. Learning from Previous Attempts
+{artifacts} section shows constraint violations and performance metrics.
+- If buffer_capacity_exceeded: Reduce temporal tiles at that level
+- If spatial_constraint_exceeded: Reduce spatial parallelism
+- If dimension_budget_mismatch: Verify tile products across all levels
+- If high EDP but constraints OK: Try different dimension orderings
+
+## Important Notes:
+
+- **Maintain Function Signatures**: Don't change function names, parameters, or return types
+- **Preserve Structure**: Keep the 4-level hierarchy (PE, Dummy, Global, DRAM)
+- **Add Comments**: Explain your optimization rationale and constraint verification
+- **Think Holistically**: Consider how tiles at different levels interact
+
+Provide your complete rewritten mapping strategy that satisfies all constraints while optimizing for lower EDP.

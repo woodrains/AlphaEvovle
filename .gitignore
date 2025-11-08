@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# OpenEvolve outputs
+openevolve_output/
+checkpoints/
+*.log
+
+# Timeloop generated files
+in_config/generated_mapping.yaml
+*.stats.txt
+*.map.txt
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
