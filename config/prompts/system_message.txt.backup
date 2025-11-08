@@ -68,81 +68,81 @@ for each dimension D:
 
 # CONCRETE EXAMPLE - Simple Dimension (C=3):
 # 6 temporal levels + spatial levels must multiply to exactly 3
-C_temporal = {{
+C_temporal = {
     "PsumRegFile": 1,      # Level 0 (PE)
     "WeightRegFile": 3,    # Level 1 (PE) ← Use all budget here
     "InputRegFile": 1,     # Level 2 (PE)
     "DummyBuffer": 1,      # Level 3
     "GlobalBuffer": 1,     # Level 4
     "DRAM": 1              # Level 5
-}}
-C_spatial = {{
+}
+C_spatial = {
     "l1": 1,  # DummyBuffer spatial
     "l2": 1   # GlobalBuffer spatial
-}}
+}
 # Verification: 1×3×1×1×1×1 (temporal) × 1×1 (spatial) = 3 ✓
 
 # CONCRETE EXAMPLE - Complex Dimension (P=224 = 2^5 × 7):
 # Multiple valid factorizations - here are 3 working examples:
 
 # ✓ VALID FACTORIZATION 1 (temporal only):
-P_temporal = {{
+P_temporal = {
     "PsumRegFile": 1,      # 1 × 1 × 1 × 2 × 7 × 16 = 224
     "WeightRegFile": 1,
     "InputRegFile": 1,
     "DummyBuffer": 2,
     "GlobalBuffer": 7,
     "DRAM": 16
-}}
-P_spatial = {{"l1": 1, "l2": 1}}
+}
+P_spatial = {"l1": 1, "l2": 1}
 # Check: 1×1×1×2×7×16 × 1×1 = 224 ✓
 
 # ✓ VALID FACTORIZATION 2 (using spatial at GlobalBuffer):
-P_temporal = {{
+P_temporal = {
     "PsumRegFile": 1,      # 1 × 1 × 1 × 1 × 7 × 4 = 28
     "WeightRegFile": 1,    # 28 × 8 = 224 ✓
     "InputRegFile": 1,
     "DummyBuffer": 1,
     "GlobalBuffer": 7,
     "DRAM": 4
-}}
-P_spatial = {{"l1": 1, "l2": 8}}  # 8 ≤ 12 (spmap_cstr) ✓
+}
+P_spatial = {"l1": 1, "l2": 8}  # 8 ≤ 12 (spmap_cstr) ✓
 # Check: 1×1×1×1×7×4 × 1×8 = 224 ✓
 
 # ✓ VALID FACTORIZATION 3 (balanced):
-P_temporal = {{
+P_temporal = {
     "PsumRegFile": 1,
     "WeightRegFile": 1,
     "InputRegFile": 1,
     "DummyBuffer": 1,
     "GlobalBuffer": 8,     # 8 × 28 = 224
     "DRAM": 28
-}}
-P_spatial = {{"l1": 1, "l2": 1}}
+}
+P_spatial = {"l1": 1, "l2": 1}
 # Check: 1×1×1×1×8×28 = 224 ✓
 
 # ❌ COMMON ERROR - Forgetting InputRegFile contribution:
-P_temporal_WRONG = {{
+P_temporal_WRONG = {
     "PsumRegFile": 1,
     "WeightRegFile": 1,
     "InputRegFile": 3,     # ← LLM adds this thinking it helps
     "DummyBuffer": 1,
     "GlobalBuffer": 8,
     "DRAM": 28
-}}
-P_spatial = {{"l1": 1, "l2": 1}}
+}
+P_spatial = {"l1": 1, "l2": 1}
 # Result: 1×1×3×1×8×28 = 672 ≠ 224 ✗ VIOLATION!
 
 # ❌ COMMON ERROR - Modifying one level without adjusting others:
 # If you change GlobalBuffer P from 7 to 8:
-P_temporal_WRONG = {{
+P_temporal_WRONG = {
     "PsumRegFile": 1,
     "WeightRegFile": 1,
     "InputRegFile": 1,
     "DummyBuffer": 1,
     "GlobalBuffer": 8,     # Changed from 7 to 8
     "DRAM": 28             # ← MUST change to 224/8=28, not 224/7=32!
-}}
+}
 # Result: 1×1×1×1×8×28 = 224 ✓ CORRECT
 # vs WRONG: 1×1×1×1×8×32 = 256 ✗ VIOLATION!
 ```
@@ -208,23 +208,23 @@ Before suggesting ANY change, verify these constraints:
 
 The artifacts section will contain:
 ```json
-{{
+{
   "constraint_violations": [
-    {{
+    {
       "type": "buffer_capacity_exceeded",
       "level": "l2",
       "dimension": "K",
       "required": 524288,
       "available": 262144,
       "overflow_ratio": 2.0
-    }}
+    }
   ],
-  "timeloop_stats": {{
+  "timeloop_stats": {
     "edp": 1.5e9,
     "latency": 150000,
     "energy": 10000
-  }}
-}}
+  }
+}
 ```
 
 **Fix Strategy**:
@@ -240,15 +240,15 @@ Provide mapping changes in SEARCH/REPLACE format:
 ```
 <<<< SEARCH
     def _get_temporal_tiles_baseline(self, level_idx: int) -> Dict[str, int]:
-        baseline_tiles = {{
-            2: {{"C": 4, "K": 4, "P": 7, "Q": 7, "R": 1, "S": 1, "N": 1}},
-        }}
+        baseline_tiles = {
+            2: {"C": 4, "K": 4, "P": 7, "Q": 7, "R": 1, "S": 1, "N": 1},
+        }
 >>>>
 REPLACE
     def _get_temporal_tiles_baseline(self, level_idx: int) -> Dict[str, int]:
-        baseline_tiles = {{
-            2: {{"C": 8, "K": 2, "P": 7, "Q": 7, "R": 1, "S": 1, "N": 1}},  # Optimize: increase C tile for weight reuse
-        }}
+        baseline_tiles = {
+            2: {"C": 8, "K": 2, "P": 7, "Q": 7, "R": 1, "S": 1, "N": 1},  # Optimize: increase C tile for weight reuse
+        }
 <<<<
 ```
 

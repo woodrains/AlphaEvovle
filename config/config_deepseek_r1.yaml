@@ -1,0 +1,56 @@
+max_iterations: 50
+checkpoint_interval: 10
+log_level: "INFO"
+
+# DeepSeek-R1 LLM Configuration
+# DeepSeek-R1 is a reasoning-focused model with strong mathematical capabilities
+llm:
+  primary_model: "deepseek-reasoner"
+  primary_model_weight: 1.0
+
+  # DeepSeek API Configuration
+  api_base: "https://api.deepseek.com"
+  api_key: "sk-93281cd0a2ed493d8a3f0480540a5ece"
+
+  # Generation parameters
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 32000
+  timeout: 900
+
+# Prompt configuration - use improved MLX-style prompts
+prompt:
+  template_dir: "/root/evolve_1108/cc_1108/config/prompts"
+  num_top_programs: 3
+  num_diverse_programs: 2
+
+  # Artifacts configuration
+  include_artifacts: true
+  max_artifact_bytes: 8192
+  artifact_security_filter: true
+
+# Database configuration with MAP-Elites
+database:
+  db_path: "./outputs/evolution/eyeriss_mapping_deepseek_r1"
+  population_size: 20
+  archive_size: 12
+  num_islands: 3
+
+  # Sampling strategy
+  elite_selection_ratio: 0.3
+  exploitation_ratio: 0.3
+  exploration_ratio: 0.2
+
+# Evaluator configuration
+evaluator:
+  timeout: 900  # 15 minutes for Timeloop simulation
+  parallel_evaluations: 4
+
+# Evolution settings
+diff_based_evolution: true
+allow_full_rewrites: true
+max_code_length: 15000
+
+# Code evolution configuration
+language: "python"
+evolve_blocks_only: true  # Only evolve EVOLVE-BLOCK sections

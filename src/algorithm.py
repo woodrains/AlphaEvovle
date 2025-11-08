@@ -45,84 +45,41 @@ def decide_temporal_tiles(level_idx: int, level_name: str,
         - Total tile size ≤ buffer_sizes[level_name]
         - Π(all levels' tiles) = original dimension
     """
-    # OPTIMIZED策略：最大化数据重用，考虑空间并行的影响
+    # BASELINE策略：保守的均匀分块
 
     if level_name == "PsumRegFile":
         # PE level - 512 bytes capacity
-        # 优化：增加C tile以利用输入重用，R/S保持内层
-        return {'N': 1, 'K': 1, 'C': 3, 'P': 1, 'Q': 1, 'R': 1, 'S': 1}
+        return {'N': 1, 'K': 1, 'C': 1, 'P': 1, 'Q': 1, 'R': 1, 'S': 3}
 
     elif level_name == "WeightRegFile":
-        # PE level - 6KB capacity  
-        # 优化：增加K tile以利用权重重用
-        return {'N': 1, 'K': 8, 'C': 1, 'P': 1, 'Q': 1, 'R': 1, 'S': 1}
+        # PE level - 6KB capacity
+        return {'N': 1, 'K': 1, 'C': 1, 'P': 1, 'Q': 1, 'R': 3, 'S': 1}
 
     elif level_name == "InputRegFile":
         # PE level - 384 bytes capacity
-        # 优化：增加P tile以利用空间局部性
-        return {'N': 1, 'K': 1, 'C': 1, 'P': 4, 'Q': 1, 'R': 1, 'S': 1}
+        return {'N': 1, 'K': 1, 'C': 1, 'P': 1, 'Q': 1, 'R': 1, 'S': 1}
 
     elif level_name == "DummyBuffer":
         # Pass-through layer - 0 capacity
-        # 优化：由于使用空间并行，时间tile保持小
-        return {'N': 1, 'K': 1, 'C': 1, 'P': 2, 'Q': 2, 'R': 1, 'S': 1}
+        return {'N': 1, 'K': 1, 'C': 1, 'P': 1, 'Q': 1, 'R': 1, 'S': 1}
 
     elif level_name == "GlobalBuffer":
         # Global SRAM - 4MB capacity
-        # 优化：平衡K和C tile以满足维度约束，同时最大化重用
-        # 修正：考虑空间并行对维度预算的影响
-        # 空间约束：DummyBuffer P=7,Q=2; GlobalBuffer P=3,Q=4
-        # 时间tile选择：K=4, C=1, P=1, Q=1 = 4*1*1*1*4 = 16 bytes per tile (远小于4MB)
-        # 选择P=1,Q=1以确保维度预算约束满足
-        return {'N': 1, 'K': 4, 'C': 1, 'P': 1, 'Q': 1, 'R': 1, 'S': 1}
+        # 保留中等tile size用于weight和activation重用
+        return {'N': 1, 'K': 4, 'C': 1, 'P': 7, 'Q': 8, 'R': 1, 'S': 1}
 
     elif level_name == "DRAM":
-        # Main memory - 计算剩余dimension，确保维度预算约束
-        # 关键修正：必须考虑时间tile和空间tile的乘积
-        # 维度预算：Π(temporal) × Π(spatial) = original dimension
-        
-        # 计算各维度已使用的时间tile
-        K_used = 1 * 8 * 1 * 1 * 4  # PsumRegFile * WeightRegFile * InputRegFile * DummyBuffer * GlobalBuffer
-        C_used = 3 * 1 * 1 * 1 * 1  # PsumRegFile=3, others=1
-        P_used = 1 * 1 * 4 * 2 * 2  # InputRegFile=4, DummyBuffer=2, GlobalBuffer=2
-        Q_used = 1 * 1 * 1 * 2 * 2  # DummyBuffer=2, GlobalBuffer=2
-        R_used = 1 * 1 * 1 * 1 * 1
-        S_used = 1 * 1 * 1 * 1 * 1
-        
-        # 计算各维度已使用的空间tile
-        K_spatial = 1 * 1 * 1 * 1 * 1  # 无空间并行
-        C_spatial = 1 * 1 * 1 * 1 * 1  # 无空间并行
-        P_spatial = 1 * 1 * 1 * 7 * 3  # DummyBuffer=7, GlobalBuffer=3
-        Q_spatial = 1 * 1 * 1 * 2 * 4  # DummyBuffer=2, GlobalBuffer=4
-        R_spatial = 1 * 1 * 1 * 1 * 1
-        S_spatial = 1 * 1 * 1 * 1 * 1
-        
-        # DRAM时间tile = 原始维度 / (已使用时间tile × 已使用空间tile)
-        N = problem_dims['N'] // (1 * 1 * 1 * 1 * 1 * 1)  # N=1
-        K = problem_dims['K'] // (K_used * K_spatial)  # 32 / (32 * 1) = 1
-        C = problem_dims['C'] // (C_used * C_spatial)  # 3 / (3 * 1) = 1
-        P = problem_dims['P'] // (P_used * P_spatial)  # 224 / (16 * 21) = 224/336 ≈ 0.67 → 需要调整
-        Q = problem_dims['Q'] // (Q_used * Q_spatial)  # 224 / (4 * 8) = 224/32 = 7
-        R = problem_dims['R'] // (R_used * R_spatial)  # 3 / 1 = 3
-        S = problem_dims['S'] // (S_used * S_spatial)  # 3 / 1 = 3
-        
-        # 修正P维度：需要调整前面的tile使得P能整除
-        # 新策略：调整GlobalBuffer P=1, DummyBuffer P=8 (满足空间约束14)
-        # 重新计算：P_used = 1*1*4*8*1 = 32, P_spatial = 1*1*1*8*3 = 24
-        # P_DRAM = 224 / (32 * 24) ≈ 0.29 → 仍然不行
-        
-        # 最终修正：重新计算确保维度预算约束满足
-        # 时间tile：PsumRegFile(K=1,C=3,P=1,Q=1), WeightRegFile(K=8), InputRegFile(P=4), 
-        #          DummyBuffer(P=2,Q=2), GlobalBuffer(K=4,P=1,Q=1)
-        # 空间tile：DummyBuffer(P=7,Q=2), GlobalBuffer(P=3,Q=4)
-        
-        # 验证维度预算：
-        # K: 1*8*1*1*4 * 1*1*1*1*1 = 32 ✓
-        # C: 3*1*1*1*1 * 1*1*1*1*1 = 3 ✓  
-        # P: 1*1*4*2*1 * 1*1*1*7*3 = 168 → DRAM需要P=224/168≈1.33，调整为1
-        # Q: 1*1*1*2*1 * 1*1*1*2*4 = 16 → DRAM需要Q=224/16=14
-        
-        return {'N': 1, 'K': 1, 'C': 1, 'P': 1, 'Q': 14, 'R': 3, 'S': 3}
+        # Main memory - 计算剩余dimension
+        # 确保Π(all levels) = original dimension
+        N = problem_dims['N']
+        K = problem_dims['K'] // 4  # GlobalBuffer已用K=4
+        C = problem_dims['C']
+        P = problem_dims['P'] // 7  # GlobalBuffer已用P=7
+        Q = problem_dims['Q'] // 8  # GlobalBuffer已用Q=8
+        R = problem_dims['R'] // 3  # WeightRegFile已用R=3
+        S = problem_dims['S'] // 3  # PsumRegFile已用S=3
+
+        return {'N': N, 'K': K, 'C': C, 'P': P, 'Q': Q, 'R': R, 'S': S}
 
     else:
         # Default: 全1
@@ -153,31 +110,10 @@ def decide_spatial_tiles(level_idx: int, level_name: str,
         - Π(spatial_tiles) ≤ spatial_constraints[level]
         - Π(temporal × spatial) = original dimension
     """
-    # OPTIMIZED策略：利用Eyeriss的P/Q空间并行
-    
-    if level_idx == 0:  # PsumRegFile - PE level
-        # PE level无空间并行
-        return {dim: 1 for dim in problem_dims}
-        
-    elif level_idx == 1:  # WeightRegFile - PE level  
-        # PE level无空间并行
-        return {dim: 1 for dim in problem_dims}
-        
-    elif level_idx == 2:  # InputRegFile - PE level
-        # PE level无空间并行
-        return {dim: 1 for dim in problem_dims}
-        
-    elif level_idx == 3:  # DummyBuffer - 14 PEs available
-        # 修正：使用P=7, Q=2 = 14 PEs (满足约束，配合时间tile)
-        return {'N': 1, 'K': 1, 'C': 1, 'P': 7, 'Q': 2, 'R': 1, 'S': 1}
-        
-    elif level_idx == 4:  # GlobalBuffer - 12 PEs available
-        # 修正：使用P=3, Q=4 = 12 PEs (满足约束，配合时间tile)
-        return {'N': 1, 'K': 1, 'C': 1, 'P': 3, 'Q': 4, 'R': 1, 'S': 1}
-        
-    else:  # DRAM level
-        # DRAM level无空间并行
-        return {dim: 1 for dim in problem_dims}
+    # BASELINE策略：无空间并行（最保守）
+    # 优化空间：可在DummyBuffer(14 PEs)和GlobalBuffer(12 PEs)使用
+
+    return {dim: 1 for dim in problem_dims}
 
 
 def decide_dimension_order(level_idx: int, level_name: str) -> List[str]:
@@ -201,18 +137,18 @@ def decide_dimension_order(level_idx: int, level_name: str) -> List[str]:
         - Global level: C内层（weight重用）
         - DRAM level: N外层（batch并行）
     """
-    # OPTIMIZED策略：针对row-stationary数据flow优化
+    # BASELINE策略：固定顺序
 
-    optimized_orders = {
-        0: ["R", "S", "C", "P", "Q", "K", "N"],  # PsumRegFile - R/S最内层，C第二内层
-        1: ["R", "S", "K", "C", "P", "Q", "N"],  # WeightRegFile - R/S内层，K第二内层（权重重用）
-        2: ["R", "S", "P", "Q", "C", "K", "N"],  # InputRegFile - R/S内层，P/Q第二内层
-        3: ["P", "Q", "R", "S", "C", "K", "N"],  # DummyBuffer - P/Q优先（空间并行）
-        4: ["C", "K", "R", "S", "P", "Q", "N"],  # GlobalBuffer - C/K内层（权重重用）
-        5: ["N", "K", "C", "P", "Q", "R", "S"]   # DRAM - N外层（batch并行）
+    baseline_orders = {
+        0: ["R", "S", "P", "Q", "C", "K", "N"],  # PsumRegFile
+        1: ["R", "S", "P", "Q", "C", "K", "N"],  # WeightRegFile
+        2: ["R", "S", "P", "Q", "C", "K", "N"],  # InputRegFile
+        3: ["P", "Q", "R", "S", "C", "K", "N"],  # DummyBuffer
+        4: ["C", "K", "P", "Q", "R", "S", "N"],  # GlobalBuffer
+        5: ["N", "K", "C", "P", "Q", "R", "S"]   # DRAM
     }
 
-    return optimized_orders.get(level_idx, ["N", "K", "C", "P", "Q", "R", "S"])
+    return baseline_orders.get(level_idx, ["N", "K", "C", "P", "Q", "R", "S"])
 
 
 def decide_bypass_strategy(level_idx: int, level_name: str) -> List[str]:
@@ -236,32 +172,10 @@ def decide_bypass_strategy(level_idx: int, level_name: str) -> List[str]:
         - "Weights": 权重数据
         - "Outputs": partial sums
     """
-    # OPTIMIZED策略：智能bypass减少数据移动
-    
-    if level_name == "PsumRegFile":
-        # PsumRegFile只处理outputs
-        return ["Inputs", "Weights"]
-        
-    elif level_name == "WeightRegFile":
-        # WeightRegFile只处理weights
-        return ["Inputs", "Outputs"]
-        
-    elif level_name == "InputRegFile":
-        # InputRegFile只处理inputs
-        return ["Weights", "Outputs"]
-        
-    elif level_name == "DummyBuffer":
-        # DummyBuffer作为pass-through，bypass不需要的数据
-        return []  # 保持所有数据通过
-        
-    elif level_name == "GlobalBuffer":
-        # GlobalBuffer：由于我们增加了K和C tile，可以bypass部分inputs
-        # 但为了权重重用，保留weights和outputs
-        return ["Inputs"]
-        
-    else:  # DRAM
-        # DRAM必须处理所有数据
-        return []
+    # BASELINE策略：不bypass（最保守，全部keep）
+    # 优化空间：可bypass GlobalBuffer的weights以节省存储
+
+    return []
 
 # EVOLVE-BLOCK-END
 # ============================================

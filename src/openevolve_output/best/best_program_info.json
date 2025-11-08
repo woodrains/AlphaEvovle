@@ -1,19 +1,31 @@
 {
-  "id": "61c48d87-2bc8-4c5a-bd3d-b260eedc9251",
-  "generation": 0,
-  "iteration": 0,
-  "timestamp": 1762598565.900632,
-  "parent_id": null,
+  "id": "14387a0d-f181-4bb8-adea-843a5682baf3",
+  "generation": 2,
+  "iteration": 3,
+  "timestamp": 1762600952.6025245,
+  "parent_id": "a1c5ece7-5c86-4152-97bc-b48c1c703c06",
   "metrics": {
     "metrics": {
-      "stage1_passed": 1.0
+      "stage1_passed": 0.0
     },
     "artifacts": {
       "stage": "stage1_constraint_check",
-      "num_violations": 0,
-      "message": "All constraints satisfied"
+      "constraint_violations": [
+        {
+          "type": "dimension_budget_mismatch",
+          "dimension": "P",
+          "expected": 224,
+          "actual": 168,
+          "message": "Dimension P: expected 224, got 168"
+        }
+      ],
+      "num_violations": 1,
+      "violation_summary": "\u2022 dimension_budget_mismatch: Dimension P: expected 224, got 168",
+      "violation_types": [
+        "dimension_budget_mismatch"
+      ]
     }
   },
   "language": "python",
-  "saved_at": 1762598620.1504905
+  "saved_at": 1762601186.8751795
 }

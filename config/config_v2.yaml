@@ -1,0 +1,69 @@
+# ============================================
+# OpenEvolve Configuration V2: New Architecture
+# Algorithm-only evolution with Timeloop interface separation
+# ============================================
+
+max_iterations: 50
+checkpoint_interval: 10
+log_level: "INFO"
+
+# ==================== LLM配置 ====================
+llm:
+  primary_model: "glm-4.6"
+  primary_model_weight: 1.0
+
+  # API配置（OpenAI兼容格式）
+  api_base: "https://open.bigmodel.cn/api/paas/v4/"
+  api_key: "283fe07947104336948a068b2501e885.Jnb3Nou8WS0Fz7Yj"
+
+  # 生成参数
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 8000
+  timeout: 600
+
+# ==================== Prompt配置 ====================
+prompt:
+  template_dir: "/root/evolve_1108/cc_1108/config/prompts"
+  num_top_programs: 3
+  num_diverse_programs: 2
+
+  # Artifacts配置
+  include_artifacts: true
+  max_artifact_bytes: 8192
+  artifact_security_filter: true
+
+# ==================== Database配置 ====================
+database:
+  db_path: "./outputs/evolution/eyeriss_mapping_v2_evolution"
+  population_size: 20
+  archive_size: 10
+  num_islands: 3
+
+  # 采样策略
+  elite_selection_ratio: 0.3
+  exploitation_ratio: 0.3
+  exploration_ratio: 0.2
+
+# ==================== Evaluator配置 ====================
+evaluator:
+  timeout: 600
+  parallel_evaluations: 4
+
+# ==================== Evolution配置 ====================
+# 进化策略配置
+diff_based_evolution: true
+allow_full_rewrites: true
+max_code_length: 15000  # 允许更大的代码长度以容纳LLM的优化建议
+
+# 代码演化配置
+language: "python"
+evolve_blocks_only: true  # ← 关键: 只演化EVOLVE-BLOCK
+
+# ==================== Fitness配置 ====================
+# OpenEvolve会自动从metrics中提取combined_score作为主fitness
+# 其他metrics (latency, energy) 会用作feature_dimensions
+
+# combined_score计算逻辑在evaluator_v2.py中:
+# combined_score = (baseline_edp - edp) / baseline_edp * 100
+# 正值 = 性能改进，负值 = 性能退化
