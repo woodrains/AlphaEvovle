@@ -47,19 +47,29 @@ class SoterMappingGenerator:
 
     def _parse_buffer_hierarchy(self) -> List[str]:
         """解析缓存层级（从Soter的get_buffer_info）"""
-        # Timeloop/Eyeriss标准4层（从内到外）
-        # 匹配constraint_checker的l0/l1/l2/l3顺序
-        return ["PE", "Dummy", "GlobalBuffer", "DRAM"]
+        # Eyeriss实际的buffer层级（从内到外）
+        # PE level包含3个独立的RegFile
+        # 匹配eyeriss.yaml中定义的实际buffer名称
+        return [
+            "PsumRegFile",      # PE level - partial sums (outputs)
+            "WeightRegFile",    # PE level - weights
+            "InputRegFile",     # PE level - inputs (activations)
+            "DummyBuffer",      # Level 1 - pass-through buffer
+            "GlobalBuffer",     # Level 2 - shared SRAM
+            "DRAM"              # Level 3 - main memory
+        ]
 
     def _parse_buffer_sizes(self) -> Dict[str, int]:
         """解析各层缓存容量（C_t约束）"""
-        # 从arch_config中提取，返回 {level_name: size_bytes}
-        # 简化示例
+        # 从eyeriss.yaml中提取实际buffer大小
+        # 计算公式: depth * width * word-bits / 8 (转换为字节)
         return {
-            "l0": 16 * 1024,      # PE level: 16KB
-            "l1": 1024,           # Dummy: 1KB
-            "l2": 256 * 1024,     # Global: 256KB
-            "l3": 1024 * 1024 * 1024  # DRAM: 1GB
+            "InputRegFile": 3 * 64 * 16 // 8,           # 3 * 64 * 16bits = 384 bytes
+            "WeightRegFile": 48 * 64 * 16 // 8,         # 48 * 64 * 16bits = 6144 bytes
+            "PsumRegFile": 4 * 64 * 16 // 8,            # 4 * 64 * 16bits = 512 bytes
+            "DummyBuffer": 0,                            # depth=0, pass-through
+            "GlobalBuffer": 32768 * 64 * 16 // 8,       # 32768 * 64 * 16bits = 4MB
+            "DRAM": 1024 * 1024 * 1024                   # 1GB (unlimited)
         }
 
     def _parse_spatial_constraints(self) -> Dict[str, int]:
@@ -174,14 +184,53 @@ class SoterMappingGenerator:
         - 较大tile提高数据重用，但可能超容量
         - 应利用维度的质因数结构
         """
-        # Baseline: 保守策略,只在最外层(DRAM)做tiling,其他层tile=1
-        # 这确保维度预算守恒: Π(all levels) = original dimension
-        if level_idx == 3:  # DRAM层 - 处理所有剩余的dimension
-            # 将所有维度分配给DRAM层
-            return {dim: self.dimensions[dim] for dim in self.dimensions}
-        else:
-            # 其他层全部tile=1 (最保守)
-            return {dim: 1 for dim in self.dimensions}
+        # 更合理的baseline: 根据层级分配不同的tile
+        # 确保维度预算守恒: Π(all levels) = original dimension
+
+        level_names = ["PsumRegFile", "WeightRegFile", "InputRegFile", "DummyBuffer", "GlobalBuffer", "DRAM"]
+        level_name = level_names[level_idx]
+
+        # PE level RegFiles: 只保留小的tile (S维度)
+        if level_name == "PsumRegFile":
+            return {'N': 1, 'K': 1, 'C': 1, 'P': 1, 'Q': 1, 'R': 1, 'S': 3}
+        elif level_name == "WeightRegFile":
+            return {'N': 1, 'K': 1, 'C': 1, 'P': 1, 'Q': 1, 'R': 3, 'S': 1}
+        elif level_name == "InputRegFile":
+            return {'N': 1, 'K': 1, 'C': 1, 'P': 1, 'Q': 1, 'R': 1, 'S': 1}
+
+        # DummyBuffer: pass-through
+        elif level_name == "DummyBuffer":
+            return {'N': 1, 'K': 1, 'C': 1, 'P': 1, 'Q': 1, 'R': 1, 'S': 1}
+
+        # GlobalBuffer: 保留中等tile (P, Q的一部分)
+        elif level_name == "GlobalBuffer":
+            return {'N': 1, 'K': 4, 'C': 1, 'P': 7, 'Q': 8, 'R': 1, 'S': 1}
+
+        # DRAM: 剩余的所有dimension
+        elif level_name == "DRAM":
+            # 计算剩余的dimension (原始/所有前面层的乘积)
+            remaining = {}
+            for dim in self.dimensions:
+                original = self.dimensions[dim]
+                # 简化: 直接计算剩余
+                if dim == 'N':
+                    remaining[dim] = original  # 1
+                elif dim == 'K':
+                    remaining[dim] = original // 4  # 32/4=8
+                elif dim == 'C':
+                    remaining[dim] = original  # 3
+                elif dim == 'P':
+                    remaining[dim] = original // 7  # 224/7=32
+                elif dim == 'Q':
+                    remaining[dim] = original // 8  # 224/8=28
+                elif dim == 'R':
+                    remaining[dim] = original // 3  # 3/3=1
+                elif dim == 'S':
+                    remaining[dim] = original // 3  # 3/3=1
+            return remaining
+
+        # Default: all 1
+        return {dim: 1 for dim in self.dimensions}
 
     def _get_spatial_tiles_baseline(self, level_idx: int) -> Dict[str, int]:
         """
@@ -225,27 +274,71 @@ class SoterMappingGenerator:
         }
 
         for level_strategy in strategy["levels"]:
-            level_mapping = {
-                "target": level_strategy["level_name"],
-                "type": "temporal",
-                "factors": " ".join([
-                    f"{dim}={size}"
-                    for dim, size in level_strategy["temporal_tiles"].items()
-                ]),
-                "permutation": " ".join(level_strategy["dimension_order"])
-            }
-            mapping["mapping"].append(level_mapping)
+            level_name = level_strategy["level_name"]
 
-            # 添加空间并行（如果有）
+            # 1. Temporal mapping (必需)
+            factors_str = " ".join([
+                f"{dim}={size}"
+                for dim, size in level_strategy["temporal_tiles"].items()
+            ])
+            perm_str = "".join(level_strategy["dimension_order"])  # 无空格,如"RSPQNKC"
+
+            temporal_mapping = {
+                "target": level_name,
+                "type": "temporal",
+                "factors": factors_str,
+                "permutation": perm_str
+            }
+            mapping["mapping"].append(temporal_mapping)
+
+            # 2. Datatype bypass mapping (为每层添加)
+            # 根据buffer类型决定keep哪些数据类型
+            datatype_mapping = {
+                "target": level_name,
+                "type": "datatype"
+            }
+
+            # 根据level和bypass策略设置keep/bypass
+            bypass_list = level_strategy.get("bypass", [])
+            if not bypass_list:
+                # 默认策略: PE level RegFiles各自keep自己的数据类型
+                if level_name == "PsumRegFile":
+                    datatype_mapping["keep"] = ["Outputs"]
+                    datatype_mapping["bypass"] = ["Weights", "Inputs"]
+                elif level_name == "WeightRegFile":
+                    datatype_mapping["keep"] = ["Weights"]
+                    datatype_mapping["bypass"] = ["Inputs", "Outputs"]
+                elif level_name == "InputRegFile":
+                    datatype_mapping["keep"] = ["Inputs"]
+                    datatype_mapping["bypass"] = ["Weights", "Outputs"]
+                elif level_name == "DummyBuffer":
+                    # Dummy层bypass所有(pass-through)
+                    datatype_mapping["bypass"] = ["Inputs", "Weights", "Outputs"]
+                elif level_name == "GlobalBuffer":
+                    # Global层保留Inputs和Outputs, bypass Weights
+                    datatype_mapping["keep"] = ["Inputs", "Outputs"]
+                    datatype_mapping["bypass"] = ["Weights"]
+                elif level_name == "DRAM":
+                    # DRAM保留所有数据
+                    datatype_mapping["keep"] = ["Inputs", "Outputs", "Weights"]
+            else:
+                # 使用策略中指定的bypass
+                datatype_mapping["bypass"] = bypass_list
+
+            mapping["mapping"].append(datatype_mapping)
+
+            # 3. Spatial mapping (如果有空间并行)
             spatial_tiles = level_strategy["spatial_tiles"]
             if any(v > 1 for v in spatial_tiles.values()):
+                spatial_factors = " ".join([
+                    f"{dim}={size}"
+                    for dim, size in spatial_tiles.items() if size > 1
+                ])
                 spatial_mapping = {
-                    "target": level_strategy["level_name"],
+                    "target": level_name,
                     "type": "spatial",
-                    "factors": " ".join([
-                        f"{dim}={size}"
-                        for dim, size in spatial_tiles.items() if size > 1
-                    ])
+                    "factors": spatial_factors,
+                    "permutation": perm_str  # 使用相同的permutation
                 }
                 mapping["mapping"].append(spatial_mapping)
 
@@ -264,11 +357,13 @@ class SoterMappingGenerator:
 def main():
     """主函数 - 被OpenEvolve evaluator调用"""
 
-    # 配置文件路径
-    in_config_dir = os.path.join(os.path.dirname(__file__), "in_config")
-    arch_file = os.path.join(in_config_dir, "eyeriss.yaml")
-    problem_file = os.path.join(in_config_dir, "problem.yaml")
-    mapspace_file = os.path.join(in_config_dir, "mapspace.yaml")
+    # 配置文件路径 (使用绝对路径，因为OpenEvolve会复制程序到临时目录)
+    # 项目根目录固定为 /root/evolve_1108/cc_1108
+    project_root = "/root/evolve_1108/cc_1108"
+    config_dir = os.path.join(project_root, "config", "timeloop")
+    arch_file = os.path.join(config_dir, "eyeriss.yaml")
+    problem_file = os.path.join(config_dir, "problem.yaml")
+    mapspace_file = os.path.join(config_dir, "mapspace.yaml")
 
     # 创建映射生成器
     generator = SoterMappingGenerator(arch_file, problem_file, mapspace_file)
@@ -279,8 +374,10 @@ def main():
     # 转换为Timeloop格式
     timeloop_mapping = generator.convert_to_timeloop_mapping(strategy)
 
-    # 保存结果
-    output_path = os.path.join(in_config_dir, "generated_mapping.yaml")
+    # 保存结果到outputs/mappings/
+    output_dir = os.path.join(project_root, "outputs", "mappings")
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "generated_mapping.yaml")
     generator.save_mapping_to_file(timeloop_mapping, output_path)
 
     print(f"✅ Mapping generated successfully: {output_path}")

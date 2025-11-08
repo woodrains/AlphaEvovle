@@ -27,7 +27,11 @@ class TimeloopEvaluator:
 
     def __init__(self):
         self.timeloop_bin = "timeloop-model"  # 确保在PATH中
-        self.in_config_dir = Path(__file__).parent / "in_config"
+
+        # 使用绝对路径，因为OpenEvolve会复制程序到临时目录
+        project_root = "/root/evolve_1108/cc_1108"
+        self.config_dir = Path(project_root) / "config" / "timeloop"
+        self.output_dir = Path(project_root) / "outputs" / "mappings"
 
         # 分层评估配置
         self.use_cascade = True
@@ -35,8 +39,8 @@ class TimeloopEvaluator:
 
         # 约束检查器
         self.constraint_checker = ConstraintChecker(
-            str(self.in_config_dir / "eyeriss.yaml"),
-            str(self.in_config_dir / "problem.yaml")
+            str(self.config_dir / "eyeriss.yaml"),
+            str(self.config_dir / "problem.yaml")
         )
 
         # Baseline性能（首次运行时测量）
@@ -44,7 +48,7 @@ class TimeloopEvaluator:
 
         print("🔧 Timeloop Evaluator Initialized")
         print(f"   Timeloop binary: {self.timeloop_bin}")
-        print(f"   Config directory: {self.in_config_dir}")
+        print(f"   Config directory: {self.config_dir}")
 
     def evaluate(self, program_path: str) -> Dict[str, Any]:
         """
@@ -138,8 +142,8 @@ class TimeloopEvaluator:
             # 调用main()生成映射
             strategy = module.main()
 
-            # 映射文件路径
-            mapping_file = self.in_config_dir / "generated_mapping.yaml"
+            # 映射文件路径 (更新为新结构: outputs/mappings/)
+            mapping_file = self.output_dir / "generated_mapping.yaml"
 
             if not mapping_file.exists():
                 return {"success": False, "error": "Mapping file not generated"}
@@ -188,11 +192,11 @@ class TimeloopEvaluator:
     def _run_timeloop_stage2(self, mapping_file: str) -> Dict[str, Any]:
         """Stage 2: Timeloop完整评估"""
         try:
-            # 准备Timeloop命令
+            # 准备Timeloop命令 (使用新的config路径)
             cmd = [
                 self.timeloop_bin,
-                str(self.in_config_dir / "eyeriss.yaml"),
-                str(self.in_config_dir / "problem.yaml"),
+                str(self.config_dir / "eyeriss.yaml"),
+                str(self.config_dir / "problem.yaml"),
                 str(mapping_file)
             ]
 
@@ -239,21 +243,29 @@ class TimeloopEvaluator:
         with open(stats_file, 'r') as f:
             content = f.read()
 
-        # 提取关键指标
+        # 提取关键指标 (从summary部分)
         metrics = {}
 
-        # Cycles（延迟）
-        if "Cycles:" in content:
-            cycles_line = [l for l in content.split('\n') if 'Cycles:' in l][0]
-            metrics["latency"] = float(cycles_line.split(':')[1].strip())
+        # Cycles（延迟） - 查找类似 "Cycles: 43352064"
+        cycles_pattern = r'Cycles:\s+(\d+)'
+        import re
+        cycles_match = re.search(cycles_pattern, content)
+        if cycles_match:
+            metrics["latency"] = float(cycles_match.group(1))
 
-        # Energy（能耗）
-        if "Energy (uJ):" in content:
-            energy_line = [l for l in content.split('\n') if 'Energy (uJ):' in l][0]
-            metrics["energy"] = float(energy_line.split(':')[1].strip())
+        # Energy（能耗） - 查找类似 "Energy: 10996.79 uJ"
+        energy_pattern = r'Energy:\s+([\d.]+)\s+uJ'
+        energy_match = re.search(energy_pattern, content)
+        if energy_match:
+            metrics["energy"] = float(energy_match.group(1))
 
-        # 计算EDP
-        if "latency" in metrics and "energy" in metrics:
+        # EDP - 查找类似 "EDP(J*cycle): 4.77e+05" 或自己计算
+        edp_pattern = r'EDP\(J\*cycle\):\s+([\d.e+\-]+)'
+        edp_match = re.search(edp_pattern, content)
+        if edp_match:
+            metrics["edp"] = float(edp_match.group(1))
+        elif "latency" in metrics and "energy" in metrics:
+            # 如果没找到EDP,自己计算
             metrics["edp"] = metrics["latency"] * metrics["energy"]
 
         return metrics
@@ -276,11 +288,11 @@ class TimeloopEvaluator:
         print("   🔄 Running baseline measurement...")
 
         try:
-            # 使用initial_program.py的baseline策略
-            baseline_program = Path(__file__).parent / "initial_program.py"
+            # 使用initial_program.py的baseline策略 (使用绝对路径)
+            baseline_program = "/root/evolve_1108/cc_1108/src/initial_program.py"
 
             # 直接运行timeloop评估,不递归调用evaluate()
-            mapping_result = self._execute_mapping_program(str(baseline_program))
+            mapping_result = self._execute_mapping_program(baseline_program)
             if not mapping_result["success"]:
                 self.baseline_metrics = {"edp": 1e12, "latency": 1e7, "energy": 1e5}
                 print("   ⚠️  Baseline program failed, using conservative defaults")
@@ -569,8 +581,8 @@ def evaluate_stage2(program_path: str) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    # 测试评估器
-    test_program = Path(__file__).parent / "initial_program.py"
+    # 测试评估器 (使用绝对路径)
+    test_program = "/root/evolve_1108/cc_1108/src/initial_program.py"
 
     print("\n" + "="*80)
     print("Testing Cascade Evaluation")
@@ -578,14 +590,14 @@ if __name__ == "__main__":
 
     # 测试Stage1
     print("\n🔍 Testing Stage 1...")
-    stage1_result = evaluate_stage1(str(test_program))
+    stage1_result = evaluate_stage1(test_program)
     print(f"Stage1 passed: {stage1_result['metrics'].get('stage1_passed', 0.0)}")
     if stage1_result['metrics'].get('stage1_passed', 0.0) > 0:
         print("✅ Stage 1 passed")
 
         # 测试Stage2
         print("\n🚀 Testing Stage 2...")
-        stage2_result = evaluate_stage2(str(test_program))
+        stage2_result = evaluate_stage2(test_program)
         print(f"Stage2 passed: {stage2_result['metrics'].get('stage2_passed', 0.0)}")
         if stage2_result['metrics'].get('stage2_passed', 0.0) > 0:
             print("✅ Stage 2 passed")
@@ -595,5 +607,5 @@ if __name__ == "__main__":
 
     # 也测试直接evaluate()
     print("\n🔬 Testing direct evaluate()...")
-    result = evaluate(str(test_program))
+    result = evaluate(test_program)
     print(json.dumps(result, indent=2))

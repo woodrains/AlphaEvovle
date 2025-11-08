@@ -1,29 +1,38 @@
-# Python
+# Python缓存
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-*.egg-info/
-dist/
-build/
 
-# OpenEvolve outputs
-openevolve_output/
-checkpoints/
-*.log
+# 输出文件 (自动生成，不提交)
+outputs/
 
-# Timeloop generated files
-in_config/generated_mapping.yaml
+# Timeloop临时文件
+timeloop-model.*.txt
+timeloop-model.*.xml
 *.stats.txt
 *.map.txt
+*.map.tenssella.txt
 
-# IDEs
+# 编辑器/IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
+
+# 临时文件
+*.tmp
+*.bak
+*.log
+
+# 保留outputs文件夹结构
+!outputs/.gitkeep
+!outputs/evolution/.gitkeep
+!outputs/mappings/.gitkeep
+!outputs/timeloop_temp/.gitkeep
