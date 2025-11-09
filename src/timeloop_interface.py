@@ -22,14 +22,16 @@ from typing import Dict, List, Tuple, Any
 class TimeloopInterface:
     """Timeloop接口层 - 封装所有Timeloop交互逻辑"""
 
-    def __init__(self, config_dir: str):
+    def __init__(self, config_dir: str, program_id: str = None):
         """
         初始化Timeloop接口
 
         Args:
             config_dir: Timeloop配置文件目录路径
+            program_id: Unique program ID for parallel evaluations (to avoid file race conditions)
         """
         self.config_dir = Path(config_dir)
+        self.program_id = program_id  # Store for unique file naming
 
         # 加载配置文件
         self.arch_config = self._load_yaml(self.config_dir / "eyeriss.yaml")
@@ -42,8 +44,11 @@ class TimeloopInterface:
         self.spatial_constraints = self._parse_spatial_constraints()
         self.problem_dims = self._parse_problem_dimensions()
 
-        # 输出目录
-        self.output_dir = Path("/root/evolve_1108/cc_1108/outputs/mappings")
+        # 输出目录 - CRITICAL FIX: Use unique directory per program for parallel evaluation
+        if program_id:
+            self.output_dir = Path(f"/root/evolve_1108/cc_1108/outputs/mappings/{program_id}")
+        else:
+            self.output_dir = Path("/root/evolve_1108/cc_1108/outputs/mappings")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def _load_yaml(self, filepath: Path) -> Dict:
@@ -311,22 +316,30 @@ class TimeloopInterface:
         Returns:
             stats: 仿真统计结果 {latency, energy, edp, ...}
         """
-        # 构造Timeloop命令
-        cmd = [
-            "timeloop-model",
-            str(self.config_dir / "eyeriss.yaml"),
-            str(self.config_dir / "problem.yaml"),
-            mapping_file
-        ]
+        # 设置Timeloop环境变量
+        env = os.environ.copy()
+        env['PATH'] = f"/root/Soter_v4/Soter_v4/timeloop-v2.0/bin:{env.get('PATH', '')}"
+        env['LD_LIBRARY_PATH'] = f"/root/Soter_v4/Soter_v4/timeloop-v2.0/lib:{env.get('LD_LIBRARY_PATH', '')}"
+
+        # 构造Timeloop命令 - 使用bash激活conda环境
+        cmd = f"""
+source /root/miniconda3/etc/profile.d/conda.sh && \
+conda activate rtl_pilot && \
+export PATH=/root/Soter_v4/Soter_v4/timeloop-v2.0/bin:$PATH && \
+export LD_LIBRARY_PATH=/root/Soter_v4/Soter_v4/timeloop-v2.0/lib:$LD_LIBRARY_PATH && \
+timeloop-model {self.config_dir / "eyeriss.yaml"} {self.config_dir / "problem.yaml"} {mapping_file}
+"""
 
         # 执行仿真
         try:
             result = subprocess.run(
                 cmd,
+                shell=True,
                 cwd=self.output_dir,
                 capture_output=True,
                 text=True,
-                timeout=300
+                timeout=300,
+                executable='/bin/bash'
             )
 
             if result.returncode != 0:
@@ -375,24 +388,29 @@ class TimeloopInterface:
         with open(stats_file, 'r') as f:
             content = f.read()
 
-            # 提取关键指标 (简化版本，实际需要更健壮的解析)
+            # 提取关键指标
             import re
 
-            # Latency (cycles)
-            latency_match = re.search(r'Cycles:\s+(\d+)', content)
+            # Latency (cycles) - 提取第一个Cycles值
+            latency_match = re.search(r'^Cycles\s*:\s*(\d+)', content, re.MULTILINE)
             if latency_match:
                 stats['latency'] = int(latency_match.group(1))
             else:
                 stats['latency'] = 0
 
-            # Energy (uJ)
-            energy_match = re.search(r'Energy \(total\)\s+:\s+([\d.]+)\s+uJ', content)
+            # Energy (pJ or uJ) - 提取第一个Energy (total)值
+            energy_match = re.search(r'Energy \(total\)\s*:\s*([\d.]+)\s*(pJ|uJ)', content, re.MULTILINE)
             if energy_match:
-                stats['energy'] = float(energy_match.group(1))
+                energy_value = float(energy_match.group(1))
+                energy_unit = energy_match.group(2)
+                # 统一转换为uJ
+                if energy_unit == 'pJ':
+                    energy_value = energy_value / 1e6  # pJ to uJ
+                stats['energy'] = energy_value
             else:
                 stats['energy'] = 0
 
-            # 计算EDP
+            # 计算EDP (cycles * uJ)
             stats['edp'] = stats['latency'] * stats['energy']
 
         return stats

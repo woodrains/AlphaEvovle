@@ -1,0 +1,49 @@
+max_iterations: 50
+checkpoint_interval: 10
+log_level: "INFO"
+
+# DeepSeek-R1 LLM Configuration
+llm:
+  primary_model: "deepseek-reasoner"
+  primary_model_weight: 1.0
+  api_base: "https://api.deepseek.com"
+  api_key: "sk-93281cd0a2ed493d8a3f0480540a5ece"
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 65536  # FIXED: DeepSeek API limit (max 65536, not 128000) - still large context for rich learning
+  timeout: 900
+
+# Prompt configuration - Optimized based on AlphaTuner success
+prompt:
+  template_dir: "/root/evolve_1108/cc_1108/config/prompts"
+  num_top_programs: 5      # INCREASED: Quality examples (AlphaTuner: 5 top programs)
+  num_diverse_programs: 5  # INCREASED: Exploration diversity (AlphaTuner: 5 diverse programs)
+  include_artifacts: true
+  max_artifact_bytes: 8192
+  artifact_security_filter: true
+
+# Database configuration - CLEAN START
+database:
+  db_path: "./outputs/evolution/eyeriss_CLEAN_START"  # ← 新路径
+  population_size: 20
+  archive_size: 12
+  num_islands: 3
+  elite_selection_ratio: 0.3
+  exploitation_ratio: 0.3
+  exploration_ratio: 0.2
+
+# Evaluator configuration
+evaluator:
+  timeout: 900
+  parallel_evaluations: 4
+  cascade_evaluation: true
+  cascade_thresholds: [0.5, 0.75, 0.9]
+
+# Evolution settings
+diff_based_evolution: true
+allow_full_rewrites: true
+max_code_length: 15000
+
+# Code evolution configuration
+language: "python"
+evolve_blocks_only: true

@@ -30,10 +30,11 @@ from timeloop_interface import TimeloopInterface
 class AlgorithmEvaluator:
     """算法评估器 - 专注于algorithm.py的评估"""
 
-    def __init__(self):
-        # Timeloop接口
+    def __init__(self, program_id: str = None):
+        # Timeloop接口 - CRITICAL FIX: Pass program_id for unique output directories
         config_dir = "/root/evolve_1108/cc_1108/config/timeloop"
-        self.timeloop_interface = TimeloopInterface(config_dir)
+        self.timeloop_interface = TimeloopInterface(config_dir, program_id=program_id)
+        self.program_id = program_id
 
         # Baseline性能（用于计算combined_score）
         self.baseline_edp = None
@@ -41,6 +42,7 @@ class AlgorithmEvaluator:
 
         print("🔧 Algorithm Evaluator Initialized (New Architecture)")
         print(f"   Config directory: {config_dir}")
+        print(f"   Program ID: {program_id if program_id else 'None (serial mode)'}")
         print(f"   Baseline EDP: {self.baseline_edp:.2e}" if self.baseline_edp else "   Baseline: Not measured")
 
     def _measure_baseline(self):
@@ -140,10 +142,16 @@ class AlgorithmEvaluator:
             latency = stats["latency"]
             energy = stats["energy"]
 
+            print(f"   Timeloop Results:")
+            print(f"     • Latency: {latency:,} cycles")
+            print(f"     • Energy: {energy:.2f} uJ")
+            print(f"     • EDP: {edp:.2e}")
+
             # combined_score设计：
             # - 目标：最小化EDP
             # - Fitness = -EDP (越小的EDP → 越大的score)
             # - 归一化：相对于baseline的改进百分比 × 100
+            improvement_pct = 0.0
             if self.baseline_edp and self.baseline_edp > 0:
                 improvement_pct = (self.baseline_edp - edp) / self.baseline_edp * 100
                 combined_score = improvement_pct  # 正值=改进，负值=退化
@@ -151,7 +159,7 @@ class AlgorithmEvaluator:
                 # 如果没有baseline，直接使用负EDP
                 combined_score = -edp / 1e9  # 归一化到合理范围
 
-            print(f"   EDP: {edp:.2e} (baseline: {self.baseline_edp:.2e})")
+            print(f"   Baseline EDP: {self.baseline_edp if self.baseline_edp else 0:.2e}")
             print(f"   Combined Score: {combined_score:.2f} (improvement: {improvement_pct:.1f}%)")
 
             # Step 7: 返回统一的metrics结构
@@ -237,7 +245,11 @@ def evaluate(algorithm_path: str) -> Dict[str, Any]:
             "artifacts": {...}
         }
     """
-    evaluator = AlgorithmEvaluator()
+    # CRITICAL FIX: Extract unique program ID from temp file path to avoid parallel file races
+    import os
+    program_id = os.path.basename(algorithm_path).replace('.py', '')  # Use filename as unique ID
+
+    evaluator = AlgorithmEvaluator(program_id=program_id)
     return evaluator.evaluate_algorithm(algorithm_path)
 
 
@@ -251,7 +263,11 @@ def evaluate_stage1(algorithm_path: str) -> Dict[str, Any]:
             "artifacts": {...}
         }
     """
-    evaluator = AlgorithmEvaluator()
+    # CRITICAL FIX: Extract unique program ID from temp file path
+    import os
+    program_id = os.path.basename(algorithm_path).replace('.py', '')
+
+    evaluator = AlgorithmEvaluator(program_id=program_id)
 
     try:
         # 导入algorithm
@@ -272,7 +288,10 @@ def evaluate_stage1(algorithm_path: str) -> Dict[str, Any]:
 
         if is_valid:
             return {
-                "metrics": {"stage1_passed": 1.0},
+                "metrics": {
+                    "stage1_passed": 1.0,
+                    "combined_score": 1.0  # Placeholder to pass cascade threshold
+                },
                 "artifacts": {
                     "stage": "stage1_constraint_check",
                     "num_violations": 0,
@@ -284,7 +303,10 @@ def evaluate_stage1(algorithm_path: str) -> Dict[str, Any]:
                 f"• {v['type']}: {v['message']}" for v in violations[:5]
             ])
             return {
-                "metrics": {"stage1_passed": 0.0},
+                "metrics": {
+                    "stage1_passed": 0.0,
+                    "combined_score": -1000.0  # Failure score
+                },
                 "artifacts": {
                     "stage": "stage1_constraint_check",
                     "constraint_violations": violations,
@@ -298,7 +320,10 @@ def evaluate_stage1(algorithm_path: str) -> Dict[str, Any]:
         print(f"❌ Stage1 error: {e}")
         traceback.print_exc()
         return {
-            "metrics": {"stage1_passed": 0.0},
+            "metrics": {
+                "stage1_passed": 0.0,
+                "combined_score": -1000.0  # Failure score
+            },
             "artifacts": {
                 "stage": "stage1_error",
                 "error": str(e),

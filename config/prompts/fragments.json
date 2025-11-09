@@ -1,73 +1,12 @@
 {
-  "fitness_improved": "✅ EDP improved: {prev:.2e} → {current:.2e} ({improvement:.1f}% reduction)",
-  "fitness_declined": "⚠️ EDP increased: {prev:.2e} → {current:.2e} ({regression:.1f}% worse). Consider reverting recent changes.",
-  "fitness_stable": "EDP unchanged at {current:.2e}",
-  "exploring_region": "Exploring {features} region of mapping space",
-  "metrics_label": "Performance Metrics: {metrics}",
-  "outcome_all_improved": "✅ All metrics improved (EDP, latency, energy)",
-  "outcome_all_regressed": "❌ All metrics regressed",
-  "outcome_mixed": "Mixed results - some metrics improved, others regressed",
-  "outcome_fitness_improved": "EDP improved while exploring new mapping strategies",
-  "key_features_prefix": "Strong in",
-  "code_too_long": "Consider simplifying mapping strategy - code length exceeds {threshold} characters",
-  "no_specific_guidance": "Focus on improving EDP while maintaining mapping diversity",
-  "metrics_improved": "Metrics showing improvement: {metrics}. Consider continuing with similar tiling strategies.",
-  "metrics_regressed": "Metrics showing regression: {metrics}. Consider different dimension ordering or tile sizes.",
-  "code_simplification": "Consider simplifying the mapping strategy for better maintainability",
-  "default_improvement": "Focus on minimizing EDP through optimal tiling and dimension ordering",
-
-  "constraint_aware": {
-    "prefix": "⚠️ CONSTRAINT REMINDER:",
-    "content": "Before modifying tiles, verify:\n1. C_t: total_tile ≤ buffer_size at each level\n2. C_p: spatial_product ≤ spmap_cstr at each level\n3. Budget: Π(temporal) × Π(spatial) = original_dimension for all dims"
-  },
-
-  "optimization_hints": {
-    "prefix": "💡 OPTIMIZATION STRATEGIES:",
-    "content": "Proven approaches:\n- Larger temporal tiles → better data reuse (if C_t satisfied)\n- Spatial tiles on P/Q → lower latency via parallelism (if C_p satisfied)\n- R/S in inner loops → minimize data movement (convolution kernel small)\n- N/K in outer loops → batch-level and filter parallelism\n- Weight tiles fit in Global Buffer (256KB) → maximum weight reuse"
-  },
-
-  "error_analysis": {
-    "prefix": "🔍 DEBUGGING CONSTRAINT VIOLATIONS:",
-    "content": "Common failure patterns and fixes:\n• buffer_capacity_exceeded → Reduce temporal tiles at violating level\n• spatial_constraint_exceeded → Reduce spatial parallelism (check P/Q tiles)\n• dimension_budget_mismatch → Verify Π(temporal[D]) × Π(spatial[D]) = original_D\n• high_edp_but_valid → Try reordering dimensions for better reuse patterns"
-  },
-
-  "success_patterns": {
-    "prefix": "✨ LEARNED FROM TOP PROGRAMS:",
-    "content": "Effective strategies from high-performing mappings:\n• Weights tile to fit in Global Buffer (K*R*S*C < 256KB)\n• P/Q use spatial parallelism at Dummy (14x) and Global (12x)\n• R/S dimensions stay small (3x3 kernel)\n• C/K dimensions utilize temporal tiling for channel parallelism\n• N dimension placed outer for batch parallelism at DRAM level"
-  },
-
-  "constraint_violation_ct": {
-    "prefix": "❌ C_t VIOLATION DETECTED:",
-    "content": "Buffer capacity exceeded at level {level}:\n• Required: {required} bytes\n• Available: {available} bytes\n• Overflow: {overflow_ratio:.2f}x\n\nFIX: Reduce temporal tiles at level {level}. Try:\n- Decreasing tile sizes for large dimensions (K, C, P, Q)\n- Moving more work to outer levels (larger buffer capacity)\n- Verifying: input_tile + weight_tile + output_tile ≤ buffer_size"
-  },
-
-  "constraint_violation_cp": {
-    "prefix": "❌ C_p VIOLATION DETECTED:",
-    "content": "Spatial parallelism exceeded at level {level}:\n• Required: {required} PEs\n• Available: {available} PEs\n• Overflow: {overflow_ratio:.2f}x\n\nFIX: Reduce spatial tiles at level {level}. Try:\n- Decreasing spatial tiles on P/Q dimensions\n- Remembering Eyeriss spatial limits: Dummy=14, Global=12\n- Verifying: Π(spatial_tiles) ≤ spmap_cstr[level]"
-  },
-
-  "constraint_violation_budget": {
-    "prefix": "❌ DIMENSION BUDGET VIOLATION:",
-    "content": "Dimension {dimension} budget mismatch:\n• Expected: {expected}\n• Actual: {actual}\n\nFIX: Verify tile products across all 4 levels. For dimension {dimension}:\n- Π(temporal[{dimension}]) × Π(spatial[{dimension}]) must equal {expected}\n- Check each level's temporal_tiles and spatial_tiles\n- Ensure no missing or incorrect tile values"
-  },
-
-  "artifacts_constraint_summary": {
-    "prefix": "📊 CONSTRAINT CHECK SUMMARY:",
-    "content": "Stage 1 constraint validation:\n• C_t violations: {ct_count}\n• C_p violations: {cp_count}\n• Budget violations: {budget_count}\n\nTotal: {total_violations} violations\n\n{violation_details}"
-  },
-
-  "artifacts_timeloop_stats": {
-    "prefix": "📈 TIMELOOP PERFORMANCE:",
-    "content": "Stage 2 evaluation results:\n• Latency: {latency:,} cycles\n• Energy: {energy:.2f} uJ\n• EDP: {edp:.2e}\n• vs Baseline: {improvement:+.1f}%\n\n{detailed_stats}"
-  },
-
-  "eyeriss_architecture_reminder": {
-    "prefix": "🏗️ EYERISS ARCHITECTURE:",
-    "content": "4-level memory hierarchy (bottom-up):\n• l0 (PE):     16 KB buffer, 1x spatial (no parallelism)\n• l1 (Dummy):  1 KB buffer, 14x spatial (P dimension)\n• l2 (Global): 256 KB buffer, 12x spatial (P dimension)\n• l3 (DRAM):   1 GB buffer, 1x spatial (no parallelism)\n\n168 total PEs organized for Row Stationary dataflow"
-  },
-
-  "dimension_factorization_hint": {
-    "prefix": "🔢 DIMENSION FACTORIZATION:",
-    "content": "Problem dimensions and prime factors:\n• N=1 (batch): [1]\n• K=64 (filters): [2, 2, 2, 2, 2, 2]\n• C=64 (channels): [2, 2, 2, 2, 2, 2]\n• P=56 (output height): [2, 2, 2, 7]\n• Q=56 (output width): [2, 2, 2, 7]\n• R=3 (kernel height): [3]\n• S=3 (kernel width): [3]\n\nUse factorization to distribute tiles across levels intelligently"
-  }
+  "fitness_improved": "✅ EDP IMPROVED: Previous EDP={prev:.2e}, Current EDP={current:.2e}. Continue exploring similar parameter changes!",
+  "fitness_declined": "⚠️ EDP INCREASED: Previous EDP={prev:.2e}, Current EDP={current:.2e}. Try different dimensions or smaller tiles.",
+  "fitness_stable": "⚠️ NO CHANGE DETECTED: EDP={current:.2e}. This likely means you didn't modify numeric return values - MUST change parameters!",
+  "exploring_region": "Exploring solution space at {features}",
+  "code_too_long": "Code length ({threshold} chars) - consider simplifying",
+  "no_specific_guidance": "**CRITICAL**: Change numeric return values in decide_temporal_tiles(), decide_spatial_tiles(). Focus on GlobalBuffer level. IMPORTANT: When modifying tiles, ensure dimension budget is satisfied (Π(all levels' tiles) = original dimension).",
+  "parameter_unchanged_warning": "WARNING: Detected identical return values. You MUST modify numeric parameters to improve EDP!",
+  "constraint_violation_hint": "⚠️ CONSTRAINT VIOLATION detected. Common causes:\n1. Dimension budget mismatch: Check that Π(temporal×spatial) across all levels equals original dimension\n2. Buffer capacity exceeded: Reduce tile sizes to fit buffer\n3. Spatial constraint exceeded: Reduce spatial parallelism to fit PE count\nSAFEST FIX: Only modify GlobalBuffer temporal tiles (K, P, Q), keep spatial tiles = 1, adjust DRAM tiles accordingly.",
+  "baseline_comparison": "Baseline EDP: {baseline_edp:.2e}. Target: Beat baseline by >5%",
+  "dimension_budget_error": "❌ DIMENSION BUDGET ERROR: When you change temporal OR spatial tiles at any level, you MUST update DRAM tiles to maintain: Π(all_levels) = original_dimension. See constraint violation details in artifacts."
 }
